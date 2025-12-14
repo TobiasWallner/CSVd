@@ -82,11 +82,7 @@ Automatically download and use the Library using CPM in CMake.
 ```cmake
 include(cmake/cpm.cmake)
 
-CPMAddPackage(
-    NAME csvd
-    GITHUB_REPOSITORY <your-repo>/csvd
-    VERSION <tag-or-commit>
-)
+CPMAddPackage("gh:TobiasWallner/CSVd#v1.0.0")
 
 add_executable(my_app main.cpp)
 
@@ -114,8 +110,8 @@ include(FetchContent)
 
 FetchContent_Declare(
 	csvd
-	GIT_REPOSITORY <your-repo>/csvd.git
-	GIT_TAG <tag-or-commit>
+	GIT_REPOSITORY https://github.com/TobiasWallner/CSVd.git
+	GIT_TAG v1.0.0
 )
 
 FetchContent_MakeAvailable(csvd)
