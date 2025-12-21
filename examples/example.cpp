@@ -22,7 +22,7 @@ int main(int argc, char* argv[]){
 
     csvd::CSVd csv;
     {
-        std::expected<void, std::string> result = csv.read(file);
+        std::expected<void, csvd::ReadError> result = csv.read(file);
         if(result.has_value() == false){
             std::cout << "Error reading file: " << filename << std::endl;
             std::cout << result.error() << std::endl;

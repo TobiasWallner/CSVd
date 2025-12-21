@@ -1,8 +1,12 @@
 #pragma once
 
-#include <vector>
+#include <deque>
+#include <array>
 #include <string>
+#include <optional>
 #include <expected>
+#include <ostream>
+#include <istream>
 
 namespace csvd{
     
@@ -11,7 +15,7 @@ namespace csvd{
      */
     struct Column{
         std::string name; ///< The name used in the header of the csv file. Empty if there is no header.
-        std::vector<double> data; ///< The data vector that correlates to the header name
+        std::deque<double> data; ///< The data vector that correlates to the header name
     };
 
     /**
@@ -25,11 +29,91 @@ namespace csvd{
 
     struct Settings{
         HeaderType header_type = HeaderType::Auto;
-        std::string value_separator = ",;\t";
-        std::string quotes = "\"'";
-        std::string line_separator = "\n";
+        std::array<char, 8> value_separators = {',', ';', '\t', '\0'};
+        std::array<char, 8> line_separators = {'\n','\0'};
+        std::array<char, 8> quotes = {'"', '\'','\0'};
         bool auto_quotes = true;
     };
+
+    enum class ErrorCase{
+        BadStream,                  ///< Bad stream.
+        UnexpectedEof,              ///< Unexpected end of file (EOF).
+        ErrorParsingFloat,          ///< Cannot convert cell to floating-point number.
+        CellOutOfRange,             ///< Cell out of range. Data-row has more elements than the header. Cannot assign data-point to a column.
+        UnexpectedLineSeparator,    ///< Unexpected line-separator, expected a data-separator.
+        ExpectedLineSeparator,      ///< Expected a line-separator
+        ExpectedValueSeparator,     
+        CellTooLong,
+    };
+
+    class ReadError{
+        private:
+            ErrorCase error_case_;
+            std::array<char, 16> cell_;
+            std::array<char, 8> expected_;
+            size_t col_;
+            size_t row_;
+            char peek_;
+
+        public:
+
+            inline ReadError(ErrorCase error_case, std::string_view cell, const std::array<char, 8>& expected, size_t col, size_t row, char peek)
+                : error_case_(error_case)
+                , expected_(expected)
+                , col_(col)
+                , row_(row)
+                , peek_(peek)
+            {
+                size_t i = 0;
+                for(; i < this->cell_.size() && i < cell.size(); ++i){
+                    this->cell_[i] = cell[i];
+                }
+                if(i < this->cell_.size()){
+                    this->cell_[i] = '\0';
+                }
+            }
+
+            ReadError(const ReadError&) = default;
+            ReadError& operator=(const ReadError&) = default;
+            
+            /**
+             * @brief Returns the error case enum that tells which error occured
+             */
+            inline ErrorCase error_case() const {return this->error_case_;}
+
+            /**
+             * @brief Returns the row at which the error happened 
+             */
+            inline size_t row() const {return this->row_;}
+
+            std::string_view cell() const {
+                for(size_t i = 0; i < this->cell_.size(); ++i){
+                    if(this->cell_[i] == '\0'){
+                        return std::string_view(this->cell_.data(), this->cell_.data() + i);
+                    }
+                }
+                return std::string_view(this->cell_.data(), this->cell_.data() + this->cell_.size());
+            }
+
+            std::string_view expected() const {
+                for(size_t i = 0; i < this->expected_.size(); ++i){
+                    if(this->expected_[i] == '\0'){
+                        return std::string_view(this->expected_.data(), this->expected_.data() + i);
+                    }
+                }
+                return std::string_view(this->expected_.data(), this->expected_.data() + this->expected_.size());
+            }
+
+            inline size_t col() const {return this->col_;}
+
+            void print(std::ostream& stream) const;
+            
+            friend inline std::ostream& operator<< (std::ostream& stream, const ReadError& error){
+                error.print(stream);
+                return stream;
+            }
+    };
+
 
     /**
      * @brief A CSV Parser and writer for tables containing floating-point numbers
@@ -49,18 +133,18 @@ namespace csvd{
      */
     class CSVd{
         
-        using iterator = std::vector<csvd::Column>::iterator;
-        using const_iterator = std::vector<csvd::Column>::const_iterator;
+        using iterator = std::deque<csvd::Column>::iterator;
+        using const_iterator = std::deque<csvd::Column>::const_iterator;
 
-        using pointer = std::vector<csvd::Column>::pointer;
-        using const_pointer = std::vector<csvd::Column>::const_pointer;
+        using pointer = std::deque<csvd::Column>::pointer;
+        using const_pointer = std::deque<csvd::Column>::const_pointer;
 
-        using reference = std::vector<csvd::Column>::reference;
-        using const_reference = std::vector<csvd::Column>::const_reference;
+        using reference = std::deque<csvd::Column>::reference;
+        using const_reference = std::deque<csvd::Column>::const_reference;
 
-        using value_type = std::vector<csvd::Column>::value_type;
+        using value_type = std::deque<csvd::Column>::value_type;
 
-        using size_type = std::vector<csvd::Column>::size_type;
+        using size_type = std::deque<csvd::Column>::size_type;
 
         public:
 
@@ -93,9 +177,6 @@ namespace csvd{
             inline bool empty() const {return this->columns_.empty();}
             inline size_type size() const {return this->columns_.size();}
             inline size_type max_size() const {return this->columns_.max_size();}
-
-            inline void reserve(size_type n) {this->columns_.reserve(n);}
-            inline size_type capacity() const {return this->columns_.capacity();}
 
             inline void clear() {this->columns_.clear();}
             
@@ -144,9 +225,11 @@ namespace csvd{
              * The new separator cannot be empty.
              * If an empty list of separator character is passed the old one will be kept.
              * 
+             * Sets a maximum of 8 characters that cannot be the null terminator `'\0'`;
+             * 
              * @param separator the new separator that will be used for parsing
              */
-            void set_value_separator(std::string_view separator);
+            void set_value_separators(std::string_view separator);
 
             /**
              * @brief Returns the list of value separators
@@ -154,7 +237,7 @@ namespace csvd{
              * The first character in the list will be used for writing values.
              * All will be used for reading values.
              */
-            [[nodiscard]] std::string_view value_separator() const;
+            [[nodiscard]] std::string_view value_separators() const;
         
             /**
              * @brief Provides a list of line separators to trigger on 
@@ -165,15 +248,19 @@ namespace csvd{
              * The new separator cannot be empty.
              * If an empty list of separator character is passed the old one will be kept.
              * 
+             * Sets a maximum of 8 characters that cannot be the null terminator `'\0'`;
+             * 
              * @param separator The new list of line separators
              */
-            void set_line_separator(std::string_view separator);
+            void set_line_separators(std::string_view separator);
 
             /**
              * @brief Returns the current list of line separators that this will trigger on
              * @return a string view of the characters
              */
-            [[nodiscard]] std::string_view line_separator() const;
+            [[nodiscard]] std::string_view line_separators() const;
+
+            [[nodiscard]] std::string_view quotes() const;
 
             /**
              * @brief finds the first column that matches the name
@@ -197,10 +284,13 @@ namespace csvd{
 
             /**
              * @brief Reds data from a CSV stream containing written data
+             * 
+             * Note that `read` has a character limit per cell entry of 128 characters.
+             * 
              * @param stream The stream containing the CSV data
              * @return An expected void on success or an error string that conatins an error message
              */
-            [[nodiscard]] std::expected<void, std::string> read(std::istream& stream);
+            [[nodiscard]] std::expected<void, ReadError> read(std::istream& stream);
 
             /**
              * @brief Writes the CSV data to the output stream
@@ -213,9 +303,9 @@ namespace csvd{
 
         private:
 
-            [[nodiscard]] std::expected<void, std::string> read_with_header(std::istream& stream);
+            [[nodiscard]] std::expected<void, ReadError> read_with_header(std::istream& stream);
 
-            [[nodiscard]] std::expected<void, std::string> read_without_header(std::istream& stream);
+            [[nodiscard]] std::expected<void, ReadError> read_without_header(std::istream& stream);
 
             /**
              * @brief Reads characters from the string until a delimiter has been found
@@ -227,9 +317,11 @@ namespace csvd{
              * @param delimiter A list of delimiters
              * @return A string containing all characters until the delimiter
              */
-            [[nodiscard]] std::string read_cell(std::istream& stream);
+            [[nodiscard]] std::optional<std::string_view> read_cell(char* buffer_first, size_t buffer_size, std::istream& stream);
 
-            std::vector<csvd::Column> columns_;
+            std::deque<csvd::Column> columns_;
             Settings settings_;
-    };
-}
+
+    }; // class CSVd
+
+}// namespace csvd

@@ -156,6 +156,74 @@ namespace csvd{
         }
     }
 
+    void ReadError::print(std::ostream& stream) const {
+        stream << "Error parsing csv\n";
+        stream << "  column: " << (this->col()+1) << '\n';
+        stream << "  row: " << (this->row()+1) << '\n';
+        const std::string_view cell_content = this->cell();
+        stream << "  cell: " << cell_content;
+        if(cell_content.size() == this->cell_.size()){
+            // if the buffer is actually full, assume that there was more text
+            stream << "...";
+        }
+        stream << '\n';
+        stream << "  message: ";
+        
+        switch(this->error_case()){
+            break; case ErrorCase::BadStream:{
+                stream << "Bad stream.";
+            };
+            break; case ErrorCase::UnexpectedEof:{
+                stream << "Unexpected end of file (EOF).";
+            }
+            break; case ErrorCase::ErrorParsingFloat:{
+                stream << "Cannot convert cell to floating-point number.";
+            }
+            break; case ErrorCase::CellOutOfRange:{
+                stream << "Cell out of range. Data-row has more elements than the header. Cannot assign data-point to a column.";
+            }
+            break; case ErrorCase::UnexpectedLineSeparator:{
+                stream << "Unexpected line-separator '" << char_symbol(this->peek_) << "', expected a value-separator [";
+                for(size_t i = 0; i < this->expected_.size(); ++i){
+                    const char separator = this->expected_[i];
+                    if(separator == '\0') break;
+                    if(i != 0) stream << ", ";
+                    stream << '\'' << char_symbol(separator) << '\'';
+                }
+                stream << "]";
+            }
+            break; case ErrorCase::ExpectedLineSeparator :{
+                stream << "Expected a line-separator [";
+                for(size_t i = 0; i < this->expected_.size(); ++i){
+                    const char separator = this->expected_[i];
+                    if(separator == '\0') break;
+                    if(i != 0) stream << ", ";
+                    stream << '\'' << char_symbol(separator) << '\'';
+                }
+                stream << "] but got '" << char_symbol(this->peek_) << "'";
+            }
+            break; case ErrorCase::ExpectedValueSeparator :{
+                stream << "Expected a value separator [";
+                for(size_t i = 0; i < this->expected_.size(); ++i){
+                    const char separator = this->expected_[i];
+                    if(separator == '\0') break;
+                    if(i != 0) stream << ", ";
+                    stream << '\'' << char_symbol(separator) << '\'';
+                }
+                stream << "] but got '" << char_symbol(this->peek_) << "'";
+            }
+            break; case ErrorCase::CellTooLong :{
+                stream << "Cell is too long and contains more than 128 characters. Note that this library does only support cells with a maximum length of 128 characters.";
+            }
+            break; default: {
+                stream << "No error message for this error. This is an internal error. Please write an issue to the developers.";
+            }
+
+        };
+        stream << "\n";
+        stream.flush();
+    }
+
     /**
      * @brief Reads characters from the string until a delimiter has been found
      * 
@@ -165,10 +233,14 @@ namespace csvd{
      * @param stream A reference to the stream object
      * @return A string containing all characters until the delimiter
      */
-    std::string CSVd::read_cell(std::istream& stream){
-        std::string result;
+    std::optional<std::string_view> CSVd::read_cell(char* buffer_first, size_t buffer_size, std::istream& stream){
+        char * itr = buffer_first;
+        char * buffer_last = buffer_first + buffer_size;
         bool is_in_quote = false;
         while(stream.eof() == false){
+            if(itr == buffer_last){
+                return std::nullopt;
+            }
             bool has_quote = std::ranges::contains(this->settings_.quotes, stream.peek());
 
             // toggle being in quotes
@@ -183,8 +255,8 @@ namespace csvd{
             }
 
             
-            bool has_value_separator = std::ranges::contains(this->settings_.value_separator, stream.peek());
-            bool has_line_separator = std::ranges::contains(this->settings_.line_separator, stream.peek());
+            bool has_value_separator = std::ranges::contains(this->settings_.value_separators, stream.peek());
+            bool has_line_separator = std::ranges::contains(this->settings_.line_separators, stream.peek());
             
             // ignore value separator if in quotes
             if(is_in_quote){
@@ -197,9 +269,10 @@ namespace csvd{
             }
 
             //Append characters
-            result += stream.get();
+            *itr = stream.get();
+            ++itr;
         }
-        return result;
+        return std::string_view(buffer_first, itr);
     }
 
     static void skip(std::istream& stream, std::string_view skip){
@@ -213,9 +286,9 @@ namespace csvd{
         skip(stream, whitespaces);
     }
 
-    [[nodiscard]] static std::string_view trim(std::string_view string, std::string_view trim){
-        const std::string::size_type pos1 = string.find_first_not_of(trim);
-        const std::string::size_type pos2 = string.find_last_not_of(trim);
+    [[nodiscard]] static std::string_view trim(std::string_view string, std::string_view trim_chars){
+        const std::string::size_type pos1 = string.find_first_not_of(trim_chars);
+        const std::string::size_type pos2 = string.find_last_not_of(trim_chars);
         const std::string::size_type count = pos2 - pos1 + 1;
         
         if(pos1 == std::string_view::npos){
@@ -240,25 +313,73 @@ namespace csvd{
         return this->settings_.header_type;
     }
 
-    void CSVd::set_value_separator(std::string_view separator){
-        if(separator.empty() == false){
-            this->settings_.value_separator = separator;
+    void CSVd::set_value_separators(std::string_view separator){
+        if(separator.empty()){
+            return;
+        }
+
+        const size_t max_length = this->settings_.value_separators.size();
+        
+        size_t i = 0;
+        for(; i < max_length && i < separator.size(); ++i){
+            this->settings_.value_separators[i] = separator[i];
+        }
+
+        if(i < max_length){
+            this->settings_.value_separators[i] = '\0';
         }
     }
 
-    std::string_view CSVd::value_separator() const {
-        return this->settings_.value_separator;
+    std::string_view CSVd::value_separators() const {
+        const size_t max_length = this->settings_.value_separators.size();
+        for(size_t i = 0; i < max_length; ++i){
+            char c = this->settings_.value_separators[i];
+            if(c == '\0'){
+                return std::string_view(&this->settings_.value_separators[0], &this->settings_.value_separators[0] + i);
+            }
+        }
+        return std::string_view(&this->settings_.value_separators[0], &this->settings_.value_separators[0] + max_length);
     }
 
-    void CSVd::set_line_separator(std::string_view separator){
-        if(separator.empty() == false){
-            this->settings_.line_separator = separator;
+    void CSVd::set_line_separators(std::string_view separator){
+        if(separator.empty()){
+            return;
+        }
+
+        const size_t max_length = this->settings_.line_separators.size();
+        
+        size_t i = 0;
+        for(; i < max_length && i < separator.size(); ++i){
+            this->settings_.line_separators[i] = separator[i];
+        }
+
+        if(i < max_length){
+            this->settings_.line_separators[i] = '\0';
         }
     }
 
-    std::string_view CSVd::line_separator() const {
-        return this->settings_.line_separator;
+    std::string_view CSVd::line_separators() const {
+        const size_t max_length = this->settings_.line_separators.size();
+        for(size_t i = 0; i < max_length; ++i){
+            char c = this->settings_.line_separators[i];
+            if(c == '\0'){
+                return std::string_view(&this->settings_.line_separators[0], &this->settings_.line_separators[0] + i);
+            }
+        }
+        return std::string_view(&this->settings_.line_separators[0], &this->settings_.line_separators[0] + max_length);
     }
+
+    std::string_view CSVd::quotes() const {
+        const size_t max_length = this->settings_.quotes.size();
+        for(size_t i = 0; i < max_length; ++i){
+            char c = this->settings_.quotes[i];
+            if(c == '\0'){
+                return std::string_view(&this->settings_.quotes[0], &this->settings_.quotes[0] + i);
+            }
+        }
+        return std::string_view(&this->settings_.quotes[0], &this->settings_.quotes[0] + max_length);
+    }
+
 
     CSVd::iterator CSVd::find(std::string_view name){
         auto itr = this->begin();
@@ -280,14 +401,12 @@ namespace csvd{
         return this->end();
     }
 
-    std::expected<void, std::string> CSVd::read(std::istream& stream){
+    std::expected<void, ReadError> CSVd::read(std::istream& stream){
         if(stream.eof()){
-            std::string error_message("Error parsing csv. Stream already at EOF\n");
-            return std::unexpected(std::move(error_message));
+            return std::unexpected(ReadError(ErrorCase::UnexpectedEof, "", {'\0'}, 0, 0, '\0'));
         }
         if(stream.bad()){
-            std::string error_message("Error parsing csv. Passed a bad stream\n");
-            return std::unexpected(std::move(error_message));
+            return std::unexpected(ReadError(ErrorCase::BadStream, "", {'\0'}, 0, 0, '\0'));
         }
         
         // read data
@@ -311,13 +430,13 @@ namespace csvd{
 
         // read header
         if(header_type == HeaderType::FirstRow){
-            std::expected<void, std::string> result = this->read_with_header(stream);
+            std::expected<void, ReadError> result = this->read_with_header(stream);
             if(result.has_value() == false){
                 return result;
             }
             ++row;
         }else{
-            std::expected<void, std::string> result = this->read_without_header(stream);
+            std::expected<void, ReadError> result = this->read_without_header(stream);
             if(result.has_value() == false){
                 return result;
             }
@@ -328,13 +447,7 @@ namespace csvd{
         while((stream.eof() == false)){
 
             if(stream.bad()){
-                std::stringstream error_message;
-                error_message 
-                    << "Error parsing csv\n"
-                    << "  column: " << (column+1) << "\n"
-                    << "  row: " << (row+1) << "\n"
-                    << "  message: Bad stream";
-                return std::unexpected(std::move(error_message).str());
+                return std::unexpected(ReadError(ErrorCase::BadStream, "", {'\0'}, column, row, '\0'));
             }
             
             skip_whitespaces(stream);
@@ -345,85 +458,45 @@ namespace csvd{
                     // eof after new colum --> probably last empty line --> ok
                     break;
                 }else{
-                    std::stringstream error_message;
-                    error_message 
-                        << "Error parsing csv\n"
-                        << "  column: " << (column+1) << "\n"
-                        << "  row: " << (row+1) << "\n"
-                        << "  message: End of line (EOF) reached too early, expected a cell entry.";
-                    return std::unexpected(std::move(error_message).str());
+                    return std::unexpected(ReadError(ErrorCase::UnexpectedEof, "", {'\0'}, column, row, '\0'));
                 }
             }
 
-            std::string cell = read_cell(stream);
-            cell = trim_whitespaces(cell);
+            char buffer[128];
+            std::optional<std::string_view> opt_cell = read_cell(buffer, sizeof(buffer) / sizeof(char), stream);
+            if(opt_cell.has_value() == false){
+                return std::unexpected(ReadError(ErrorCase::CellTooLong, "", {'\0'}, column, row, stream.peek()));
+            }
+            std::string_view cell = trim_whitespaces(opt_cell.value());
             
             double value = 0;
             {
                 const std::from_chars_result result = std::from_chars(cell.data(), cell.data() + cell.size(), value);
                 if(result.ec != std::errc{}){
-                    std::stringstream error_message;
-                    error_message 
-                        << "Error parsing csv\n"
-                        << "  column: " << (column + 1) << "\n"
-                        << "  row: " << (row + 1) << "\n"
-                        << "  cell: " << cell << "\n"
-                        << "  message: Cannot convert cell to floating-point number\n";
-                    return std::unexpected(std::move(error_message).str());
+                    return std::unexpected(ReadError(ErrorCase::ErrorParsingFloat, cell, {'\0'}, column, row, stream.peek()));
                 }
             }
 
             if(column < this->size()){
                 this->at(column).data.emplace_back(value);
             }else{
-                std::stringstream error_message;
-                error_message 
-                    << "Error parsing csv\n"
-                    << "  column: " << (column+1) << "\n"
-                    << "  row: " << (row+1) << "\n"
-                    << "  cell: " << cell << "\n"
-                    << "  message: Cell out of range. Header has only " << this->size() << " columns\n";
-                return std::unexpected(std::move(error_message).str());
+                return std::unexpected(ReadError(ErrorCase::CellOutOfRange, cell, {'\0'}, column, row, stream.peek()));
             }
 
-            if(std::ranges::contains(this->settings_.line_separator, stream.peek()) || stream.eof()){
+            if(std::ranges::contains(this->settings_.line_separators, stream.peek()) || stream.eof()){
                 if(column+1 != this->size()){
-                    std::stringstream error_message;
-                    error_message 
-                        << "Error parsing csv\n"
-                        << "  column: " << (column+1) << "\n"
-                        << "  row: " << (row+1) << "\n"
-                        << "  cell: " << cell << "\n"
-                        << "  message: Line terminator too early. Header has " << this->size() << " columns\n";
-                    return std::unexpected(std::move(error_message).str());
+                    return std::unexpected(
+                        ReadError(ErrorCase::UnexpectedLineSeparator, cell, this->settings_.line_separators, column, row, stream.eof() ? '\0' : stream.peek()));
                 }
                 column = 0;
                 ++row;
             }else{
                 if(column+1 == this->size()){
-                    std::stringstream error_message;
-                    error_message
-                        << "Error parsing csv\n"
-                        << "  column: " << (column+1) << "\n"
-                        << "  row: " << (row+1) << "\n"
-                        << "  cell: " << cell << "\n"
-                        << "  message: Expected line separator but got '" << char_symbol(stream.peek()) << "' Header has " << this->size() << " columns\n";
-                    return std::unexpected(std::move(error_message).str());
+                    return std::unexpected(ReadError(ErrorCase::ExpectedLineSeparator, cell, this->settings_.line_separators, column, row, stream.peek()));
                 }
 
-                if(!std::ranges::contains(this->settings_.value_separator, stream.peek())){
-                    std::stringstream error_message;
-                    error_message
-                        << "Error parsing csv\n"
-                        << "  column: " << (column+1) << "\n"
-                        << "  row: " << (row+1) << "\n"
-                        << "  cell: " << cell << "\n"
-                        << "  message: Expected value separator [";
-                    for(char c : this->settings_.value_separator){
-                        error_message << char_symbol(c);
-                    }
-                    error_message << "] but got '" << char_symbol(stream.peek()) << "' Header has " << this->size() << " columns\n";
-                    return std::unexpected(std::move(error_message).str());
+                if(!std::ranges::contains(this->settings_.value_separators, stream.peek())){
+                    return std::unexpected(ReadError(ErrorCase::ExpectedValueSeparator, cell, this->settings_.value_separators, column, row, stream.peek()));
                 }
                 ++column;
             }
@@ -434,26 +507,24 @@ namespace csvd{
         return {};
     }
 
-    std::expected<void, std::string> CSVd::read_with_header(std::istream& stream){
+    std::expected<void, ReadError> CSVd::read_with_header(std::istream& stream){
         // read header names
         size_t column_index = 0;
         while(stream.eof() == false){
 
             if(stream.bad()){
-                std::stringstream error_message;
-                error_message 
-                    << "Error parsing csv\n"
-                    << "  column: " << (column_index+1) << "\n"
-                    << "  row: " << (1) << "\n"
-                    << "  message: Bad stream";
-                return std::unexpected(std::move(error_message).str());
+                return std::unexpected(ReadError(ErrorCase::BadStream, "", {'\0'}, column_index, 0, '\0'));
             }
 
             // parse cell
-            std::string cell = read_cell(stream);
-            cell = trim_whitespaces(cell);
+            char buffer[128];
+            std::optional<std::string_view> opt_cell = read_cell(buffer, sizeof(buffer) / sizeof(char), stream);
+            if(opt_cell.has_value() == false){
+                return std::unexpected(ReadError(ErrorCase::CellTooLong, "", {'\0'}, column_index, 0, stream.peek()));
+            }
+            std::string_view cell = trim_whitespaces(opt_cell.value());
             if(this->settings_.auto_quotes){
-                cell = trim(cell, this->settings_.quotes);
+                cell = trim(cell, this->quotes());
             }
             
             // create new column
@@ -462,7 +533,7 @@ namespace csvd{
             this->push_back(std::move(column));
 
             // check if the line has ended
-            const bool has_line_separator = std::ranges::contains(this->settings_.line_separator, stream.peek());
+            const bool has_line_separator = std::ranges::contains(this->settings_.line_separators, stream.peek());
             
             // consume delimiter
             stream.ignore();
@@ -478,27 +549,24 @@ namespace csvd{
         return {};
     }
 
-    std::expected<void, std::string> CSVd::read_without_header(std::istream& stream){
+    std::expected<void, ReadError> CSVd::read_without_header(std::istream& stream){
         // read first line and allocate columns
         size_t column_index = 0;
         while(stream.eof() == false){
 
             if(stream.bad()){
-                std::stringstream error_message;
-                error_message 
-                    << "Error parsing csv\n"
-                    << "  column: " << (column_index+1) << "\n"
-                    << "  row: " << (1) << "\n"
-                    << "  message: Bad stream";
-                return std::unexpected(std::move(error_message).str());
+                return std::unexpected(ReadError(ErrorCase::BadStream, "", {'\0'}, column_index, 0, '\0'));;
             }
 
-            std::string cell = read_cell(stream);
-
-            cell = trim_whitespaces(cell);
+            char buffer[128];
+            std::optional<std::string_view> opt_cell = read_cell(buffer, sizeof(buffer) / sizeof(char), stream);
+            if(opt_cell.has_value() == false){
+                return std::unexpected(ReadError(ErrorCase::CellTooLong, "", {'\0'}, column_index, 0, stream.peek()));
+            }
+            std::string_view cell = trim_whitespaces(opt_cell.value());
 
             if(this->settings_.auto_quotes){
-                cell = trim(cell, this->settings_.quotes);
+                cell = trim(cell, this->quotes());
             }
             
             Column column;
@@ -506,14 +574,7 @@ namespace csvd{
             {
                 const std::from_chars_result result = std::from_chars(cell.data(), cell.data() + cell.size(), value);
                 if(result.ec != std::errc{}){
-                    std::stringstream error_message;
-                    error_message 
-                        << "Error parsing csv\n"
-                        << "  column: " << (column_index + 1) << "\n"
-                        << "  row: " << (1) << "\n"
-                        << "  cell: " << cell << "\n"
-                        << "  message: Cannot convert cell to floating-point number\n";
-                    return std::unexpected(std::move(error_message).str());
+                    return std::unexpected(ReadError(ErrorCase::ErrorParsingFloat, cell, {'\0'}, column_index, 0, stream.peek()));;
                 }
             }
 
@@ -521,7 +582,7 @@ namespace csvd{
             this->push_back(std::move(column));
 
             // check if the line has ended
-            const bool has_line_separator = std::ranges::contains(this->settings_.line_separator, stream.peek());
+            const bool has_line_separator = std::ranges::contains(this->settings_.line_separators, stream.peek());
             
             // consume delimiter
             stream.ignore();
@@ -561,7 +622,7 @@ namespace csvd{
             size_t index = 0;
             while(col_itr != this->end()){
                 if(this->settings_.auto_quotes){
-                    stream << this->settings_.quotes.front(); // quotes is guaranteed to not be empty
+                    stream << this->settings_.quotes[0]; // quotes is guaranteed to not be empty
                 }
 
                 if(col_itr->name.empty() == false){
@@ -569,16 +630,16 @@ namespace csvd{
                 }else{
                     // print column number in quotes
                     if(this->settings_.auto_quotes == false){
-                        stream << this->settings_.quotes.front(); // quotes is guaranteed to not be empty
+                        stream << this->settings_.quotes[0]; // quotes is guaranteed to not be empty
                     }
                     stream << index;
                     if(this->settings_.auto_quotes == false){
-                        stream << this->settings_.quotes.front(); // quotes is guaranteed to not be empty
+                        stream << this->settings_.quotes[0]; // quotes is guaranteed to not be empty
                     }
                 }
 
                 if(this->settings_.auto_quotes){
-                    stream << this->settings_.quotes.front(); // quotes is guaranteed to not be empty
+                    stream << this->settings_.quotes[0]; // quotes is guaranteed to not be empty
                 }
 
                 ++col_itr;
@@ -586,10 +647,10 @@ namespace csvd{
 
                 if(col_itr == this->end()){
                     // end of line
-                    stream << this->settings_.line_separator.front(); // line separator is guaranteed to not be empty
+                    stream << this->settings_.line_separators[0]; // line separator is guaranteed to not be empty
                 }else{
                     // end of cell
-                    stream << this->settings_.value_separator.front(); // value_separator is guaranteed to not be empty
+                    stream << this->settings_.value_separators[0]; // value_separators is guaranteed to not be empty
                 }
             }
         }
@@ -608,10 +669,10 @@ namespace csvd{
                 ++col_itr;
                 if(col_itr == this->end()){
                     // end of line
-                    stream << this->settings_.line_separator.front(); // line separator is guaranteed to not be empty
+                    stream << this->settings_.line_separators[0]; // line separator is guaranteed to not be empty
                 }else{
                     // end of cell
-                    stream << this->settings_.value_separator.front(); // value_separator is guaranteed to not be empty
+                    stream << this->settings_.value_separators[0]; // value_separators is guaranteed to not be empty
                 }
             }
         }
