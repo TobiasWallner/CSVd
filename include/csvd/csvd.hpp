@@ -324,4 +324,6 @@ namespace csvd{
 
     }; // class CSVd
 
+    std::expected<CSVd, ReadError> read(std::istream& stream, Settings settings = Settings());
+
 }// namespace csvd

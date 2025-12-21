@@ -678,4 +678,14 @@ namespace csvd{
         }
     }
 
+    std::expected<CSVd, ReadError> read(std::istream& stream, Settings settings){
+        CSVd csv(settings);
+        std::expected<void, ReadError> r = csv.read(stream);
+        if(r.has_value()){
+            return csv;
+        }else{
+            return std::unexpected(r.error());
+        }
+    }
+
 }//namespace csvd
