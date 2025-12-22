@@ -283,6 +283,56 @@ namespace csvd{
             [[nodiscard]] const_iterator find(std::string_view name) const;
 
             /**
+             * @brief Finds a column conditionaly that triggers `true` on the column name
+             * 
+             * Possible realisation of a predicate:
+             * 
+             * \code{.cpp}
+             * bool func(std::string_view name){
+             *  return (name == "time") || (name == "Time");
+             * }
+             * \endcode
+             * 
+             * @tparam Function The function type
+             * @param predicate The predicate that decides which column to get
+             * @returns An iterator to the matching column or the `end()` iterator if no column matches
+             */
+            template<class Function>
+            [[nodiscard]] iterator find_if(Function&& predicate){
+                for(iterator itr = this->begin(); itr != this->end(); ++itr){
+                    if(predicate(itr->name)){
+                        return itr;
+                    }
+                }
+                return this->end();
+            }
+
+            /**
+             * @brief Finds a column conditionaly that triggers `true` on the column name
+             * 
+             * Possible realisation of a predicate:
+             * 
+             * \code{.cpp}
+             * bool func(std::string_view name){
+             *  return (name == "time") || (name == "Time");
+             * }
+             * \endcode
+             * 
+             * @tparam Function The function type
+             * @param predicate The predicate that decides which column to get
+             * @returns An iterator to the matching column or the `end()` iterator if no column matches
+             */  
+            template<class Function>
+            [[nodiscard]] const_iterator find_if(Function&& predicate) const {
+                for(const_iterator itr = this->cbegin(); itr != this->cend(); ++itr){
+                    if(predicate(itr->name)){
+                        return itr;
+                    }
+                }
+                return this->cend();
+            }
+
+            /**
              * @brief Reds data from a CSV stream containing written data
              * 
              * Note that `read` has a character limit per cell entry of 128 characters.

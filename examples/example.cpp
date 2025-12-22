@@ -75,6 +75,18 @@ int main(int argc, char* argv[]){
             std::cout << "  first 3 values: ";
         }
     }
+    {
+        auto column = csv.find_if([](std::string_view name){
+            return name.starts_with("Mag") || name.starts_with("mag");
+        });
+        if(column != csv.end()){
+            std::cout << "find_if: Found column with name: " << column->name << std::endl;
+            std::cout << "  column size: " << column->data.size() << std::endl;
+            std::cout << "  first 3 values: ";
+        }else{
+            std::cout << "find_if: Did not found a column" << std::endl;
+        }
+    }
 
     std::cout << "Write new csv" << std::endl;
 
