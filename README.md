@@ -1,5 +1,8 @@
 # CSVd
 
+[![clang-build-and-test](https://github.com/TobiasWallner/CSVd/actions/workflows/test_with_clang.yml/badge.svg)](https://github.com/TobiasWallner/CSVd/actions/workflows/test_with_clang.yml)
+[![gcc-build-and-test](https://github.com/TobiasWallner/CSVd/actions/workflows/test_with_gcc.yml/badge.svg)](https://github.com/TobiasWallner/CSVd/actions/workflows/test_with_gcc.yml)
+
 A small, **intentionally simple** CSV reader and writer for tables containing **numeric (`double`) values only**.
 
 CSVd is designed for scientific, engineering, and data-processing workflows where CSV files are:
