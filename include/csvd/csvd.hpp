@@ -4,9 +4,10 @@
 #include <array>
 #include <string>
 #include <optional>
-#include <expected>
 #include <ostream>
 #include <istream>
+
+#include <tl/expected.hpp>
 
 namespace csvd{
     
@@ -340,7 +341,7 @@ namespace csvd{
              * @param stream The stream containing the CSV data
              * @return An expected void on success or an error string that conatins an error message
              */
-            [[nodiscard]] std::expected<void, ReadError> read(std::istream& stream);
+            [[nodiscard]] tl::expected<void, ReadError> read(std::istream& stream);
 
             /**
              * @brief Writes the CSV data to the output stream
@@ -353,9 +354,9 @@ namespace csvd{
 
         private:
 
-            [[nodiscard]] std::expected<void, ReadError> read_with_header(std::istream& stream);
+            [[nodiscard]] tl::expected<void, ReadError> read_with_header(std::istream& stream);
 
-            [[nodiscard]] std::expected<void, ReadError> read_without_header(std::istream& stream);
+            [[nodiscard]] tl::expected<void, ReadError> read_without_header(std::istream& stream);
 
             /**
              * @brief Reads characters from the string until a delimiter has been found
@@ -374,6 +375,6 @@ namespace csvd{
 
     }; // class CSVd
 
-    std::expected<CSVd, ReadError> read(std::istream& stream, Settings settings = Settings());
+    tl::expected<CSVd, ReadError> read(std::istream& stream, Settings settings = Settings());
 
 }// namespace csvd

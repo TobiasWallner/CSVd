@@ -1,10 +1,11 @@
 #include <algorithm>
 #include <string>
 #include <sstream>
-#include <expected>
 #include <charconv>
 #include <limits>
 #include <csvd/csvd.hpp>
+
+#include <tl/expected.hpp>
 
 namespace csvd{
 
@@ -401,12 +402,12 @@ namespace csvd{
         return this->end();
     }
 
-    std::expected<void, ReadError> CSVd::read(std::istream& stream){
+    tl::expected<void, ReadError> CSVd::read(std::istream& stream){
         if(stream.eof()){
-            return std::unexpected(ReadError(ErrorCase::UnexpectedEof, "", {'\0'}, 0, 0, '\0'));
+            return tl::unexpected(ReadError(ErrorCase::UnexpectedEof, "", {'\0'}, 0, 0, '\0'));
         }
         if(stream.bad()){
-            return std::unexpected(ReadError(ErrorCase::BadStream, "", {'\0'}, 0, 0, '\0'));
+            return tl::unexpected(ReadError(ErrorCase::BadStream, "", {'\0'}, 0, 0, '\0'));
         }
         
         // read data
@@ -430,13 +431,13 @@ namespace csvd{
 
         // read header
         if(header_type == HeaderType::FirstRow){
-            std::expected<void, ReadError> result = this->read_with_header(stream);
+            tl::expected<void, ReadError> result = this->read_with_header(stream);
             if(result.has_value() == false){
                 return result;
             }
             ++row;
         }else{
-            std::expected<void, ReadError> result = this->read_without_header(stream);
+            tl::expected<void, ReadError> result = this->read_without_header(stream);
             if(result.has_value() == false){
                 return result;
             }
@@ -447,7 +448,7 @@ namespace csvd{
         while((stream.eof() == false)){
 
             if(stream.bad()){
-                return std::unexpected(ReadError(ErrorCase::BadStream, "", {'\0'}, column, row, '\0'));
+                return tl::unexpected(ReadError(ErrorCase::BadStream, "", {'\0'}, column, row, '\0'));
             }
             
             skip_whitespaces(stream);
@@ -458,14 +459,14 @@ namespace csvd{
                     // eof after new colum --> probably last empty line --> ok
                     break;
                 }else{
-                    return std::unexpected(ReadError(ErrorCase::UnexpectedEof, "", {'\0'}, column, row, '\0'));
+                    return tl::unexpected(ReadError(ErrorCase::UnexpectedEof, "", {'\0'}, column, row, '\0'));
                 }
             }
 
             char buffer[128];
             std::optional<std::string_view> opt_cell = read_cell(buffer, sizeof(buffer) / sizeof(char), stream);
             if(opt_cell.has_value() == false){
-                return std::unexpected(ReadError(ErrorCase::CellTooLong, "", {'\0'}, column, row, stream.peek()));
+                return tl::unexpected(ReadError(ErrorCase::CellTooLong, "", {'\0'}, column, row, stream.peek()));
             }
             std::string_view cell = trim_whitespaces(opt_cell.value());
             
@@ -473,30 +474,30 @@ namespace csvd{
             {
                 const std::from_chars_result result = std::from_chars(cell.data(), cell.data() + cell.size(), value);
                 if(result.ec != std::errc{}){
-                    return std::unexpected(ReadError(ErrorCase::ErrorParsingFloat, cell, {'\0'}, column, row, stream.peek()));
+                    return tl::unexpected(ReadError(ErrorCase::ErrorParsingFloat, cell, {'\0'}, column, row, stream.peek()));
                 }
             }
 
             if(column < this->size()){
                 this->at(column).data.emplace_back(value);
             }else{
-                return std::unexpected(ReadError(ErrorCase::CellOutOfRange, cell, {'\0'}, column, row, stream.peek()));
+                return tl::unexpected(ReadError(ErrorCase::CellOutOfRange, cell, {'\0'}, column, row, stream.peek()));
             }
 
             if(std::ranges::contains(this->settings_.line_separators, stream.peek()) || stream.eof()){
                 if(column+1 != this->size()){
-                    return std::unexpected(
+                    return tl::unexpected(
                         ReadError(ErrorCase::UnexpectedLineSeparator, cell, this->settings_.line_separators, column, row, stream.eof() ? '\0' : stream.peek()));
                 }
                 column = 0;
                 ++row;
             }else{
                 if(column+1 == this->size()){
-                    return std::unexpected(ReadError(ErrorCase::ExpectedLineSeparator, cell, this->settings_.line_separators, column, row, stream.peek()));
+                    return tl::unexpected(ReadError(ErrorCase::ExpectedLineSeparator, cell, this->settings_.line_separators, column, row, stream.peek()));
                 }
 
                 if(!std::ranges::contains(this->settings_.value_separators, stream.peek())){
-                    return std::unexpected(ReadError(ErrorCase::ExpectedValueSeparator, cell, this->settings_.value_separators, column, row, stream.peek()));
+                    return tl::unexpected(ReadError(ErrorCase::ExpectedValueSeparator, cell, this->settings_.value_separators, column, row, stream.peek()));
                 }
                 ++column;
             }
@@ -507,20 +508,20 @@ namespace csvd{
         return {};
     }
 
-    std::expected<void, ReadError> CSVd::read_with_header(std::istream& stream){
+    tl::expected<void, ReadError> CSVd::read_with_header(std::istream& stream){
         // read header names
         size_t column_index = 0;
         while(stream.eof() == false){
 
             if(stream.bad()){
-                return std::unexpected(ReadError(ErrorCase::BadStream, "", {'\0'}, column_index, 0, '\0'));
+                return tl::unexpected(ReadError(ErrorCase::BadStream, "", {'\0'}, column_index, 0, '\0'));
             }
 
             // parse cell
             char buffer[128];
             std::optional<std::string_view> opt_cell = read_cell(buffer, sizeof(buffer) / sizeof(char), stream);
             if(opt_cell.has_value() == false){
-                return std::unexpected(ReadError(ErrorCase::CellTooLong, "", {'\0'}, column_index, 0, stream.peek()));
+                return tl::unexpected(ReadError(ErrorCase::CellTooLong, "", {'\0'}, column_index, 0, stream.peek()));
             }
             std::string_view cell = trim_whitespaces(opt_cell.value());
             if(this->settings_.auto_quotes){
@@ -549,19 +550,19 @@ namespace csvd{
         return {};
     }
 
-    std::expected<void, ReadError> CSVd::read_without_header(std::istream& stream){
+    tl::expected<void, ReadError> CSVd::read_without_header(std::istream& stream){
         // read first line and allocate columns
         size_t column_index = 0;
         while(stream.eof() == false){
 
             if(stream.bad()){
-                return std::unexpected(ReadError(ErrorCase::BadStream, "", {'\0'}, column_index, 0, '\0'));;
+                return tl::unexpected(ReadError(ErrorCase::BadStream, "", {'\0'}, column_index, 0, '\0'));;
             }
 
             char buffer[128];
             std::optional<std::string_view> opt_cell = read_cell(buffer, sizeof(buffer) / sizeof(char), stream);
             if(opt_cell.has_value() == false){
-                return std::unexpected(ReadError(ErrorCase::CellTooLong, "", {'\0'}, column_index, 0, stream.peek()));
+                return tl::unexpected(ReadError(ErrorCase::CellTooLong, "", {'\0'}, column_index, 0, stream.peek()));
             }
             std::string_view cell = trim_whitespaces(opt_cell.value());
 
@@ -574,7 +575,7 @@ namespace csvd{
             {
                 const std::from_chars_result result = std::from_chars(cell.data(), cell.data() + cell.size(), value);
                 if(result.ec != std::errc{}){
-                    return std::unexpected(ReadError(ErrorCase::ErrorParsingFloat, cell, {'\0'}, column_index, 0, stream.peek()));;
+                    return tl::unexpected(ReadError(ErrorCase::ErrorParsingFloat, cell, {'\0'}, column_index, 0, stream.peek()));;
                 }
             }
 
@@ -678,13 +679,13 @@ namespace csvd{
         }
     }
 
-    std::expected<CSVd, ReadError> read(std::istream& stream, Settings settings){
+    tl::expected<CSVd, ReadError> read(std::istream& stream, Settings settings){
         CSVd csv(settings);
-        std::expected<void, ReadError> r = csv.read(stream);
+        tl::expected<void, ReadError> r = csv.read(stream);
         if(r.has_value()){
             return csv;
         }else{
-            return std::unexpected(r.error());
+            return tl::unexpected(r.error());
         }
     }
 
