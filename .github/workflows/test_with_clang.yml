@@ -30,7 +30,7 @@ jobs:
           echo "CXX=clang++" >> $GITHUB_ENV
 
     - name: Configure with CMake
-      run: cmake -S . -B build -G "Ninja" build -DCONTROLPP_COMPILE_TEST=ON -DCMAKE_BUILD_TYPE=Debug
+      run: cmake -S . -B build -G "Ninja" build -Dcsvd_enable_tests=ON -DCMAKE_BUILD_TYPE=Debug
 
     - name: Build
       run: cmake --build build
