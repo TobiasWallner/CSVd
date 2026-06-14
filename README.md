@@ -144,7 +144,7 @@ if(!file.is_open()){
 }
 
 csvd::CSVd csv;
-std::expected<void, std::string> result = csv.read(file);
+tl::expected<void, std::string> result = csv.read(file);
 
 if(!result){
     std::cerr << result.error() << std::endl;
@@ -234,7 +234,7 @@ This is a heuristic and may not work for all inputs.
 All parsing errors return:
 
 ```cpp
-std::expected<void, std::string>
+tl::expected<void, std::string>
 ```
 
 Error messages include:

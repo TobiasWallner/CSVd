@@ -4,6 +4,7 @@ project(csvd)
 
 include(cmake/BPM.cmake)
 
+BPMAddInstallPackage("https://github.com/TartanLlama/expected#v1.3.1" PACKAGES tl-expected)
 BPMAddInstallPackage("https://github.com/google/googletest#v1.17.0" PACKAGES GTest PRIVATE)
 
 BPMMakeAvailable()
@@ -15,6 +16,10 @@ add_library(${PROJECT_NAME} STATIC
 
 target_include_directories(${PROJECT_NAME} PUBLIC
     include
+)
+
+target_link_libraries(${PROJECT_NAME} PUBLIC
+    tl::expected
 )
 
 target_compile_features(${PROJECT_NAME} PUBLIC
