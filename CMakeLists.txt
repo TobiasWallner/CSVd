@@ -15,7 +15,8 @@ add_library(${PROJECT_NAME} STATIC
 )
 
 target_include_directories(${PROJECT_NAME} PUBLIC
-    include
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/include>
+    $<INSTALL_INTERFACE:include>
 )
 
 target_link_libraries(${PROJECT_NAME} PUBLIC
@@ -24,6 +25,15 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
 
 target_compile_features(${PROJECT_NAME} PUBLIC
     cxx_std_23
+)
+
+add_library(${PROJECT_NAME}::${PROJECT_NAME} ALIAS ${PROJECT_NAME})
+
+
+BPMCreateInstallPackage(
+    PACKAGE_NAME CSVd
+    NAMESPACE ${PROJECT_NAME}
+    TARGETS ${PROJECT_NAME}
 )
 
 # build example
